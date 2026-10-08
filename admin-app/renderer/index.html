@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: http: https:; connect-src *"
+    />
+    <title>AI Tutor - Teacher</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
+
+    <main id="auth-view" class="auth" hidden>
+      <form id="login-form" class="auth-card">
+        <h1>AI Tutor · Teacher</h1>
+        <p class="muted">Sign in with your teacher account.</p>
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" autocomplete="username" required />
+        <label for="login-password">Password</label>
+        <input id="login-password" type="password" autocomplete="current-password" required />
+        <button type="submit" class="primary block">Sign in</button>
+        <p id="auth-error" class="error" role="alert"></p>
+        <details class="server-settings">
+          <summary>Server settings</summary>
+          <label for="server-url">Server address</label>
+          <input id="server-url" type="url" />
+          <button type="button" id="save-server" class="secondary">Save</button>
+        </details>
+      </form>
+    </main>
+
+    <div id="app-view" class="app" hidden>
+      <nav class="nav" aria-label="Sections">
+        <div class="brand">AI Tutor<span>Teacher</span></div>
+        <button class="nav-item" data-panel="students" aria-current="page">Students &amp; access</button>
+        <button class="nav-item" data-panel="subjects">Domains &amp; subjects</button>
+        <button class="nav-item" data-panel="restrictions">Content restrictions</button>
+        <button class="nav-item" data-panel="goals">Learning goals</button>
+        <button class="nav-item" data-panel="prompts">Prompt history</button>
+        <button class="nav-item" data-panel="settings">System &amp; teachers</button>
+        <div class="nav-footer">
+          <span id="user-name" class="muted"></span>
+          <button id="logout" class="secondary small">Sign out</button>
+        </div>
+      </nav>
+
+      <main class="content">
+        <!-- Students -->
+        <section id="panel-students" class="panel" aria-labelledby="h-students">
+          <header class="panel-head">
+            <div>
+              <h1 id="h-students">Students &amp; access</h1>
+              <p class="muted">Choose which AI teachers each student may use. Students can only talk to the teachers you enable.</p>
+            </div>
+          </header>
+          <div class="toolbar">
+            <label for="student-search" class="sr-only">Search students</label>
+            <input id="student-search" type="search" placeholder="Search by name or email" />
+            <span id="student-count" class="muted"></span>
+          </div>
+          <div class="split">
+            <div class="table-wrap">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th scope="col"><input type="checkbox" id="select-all-students" aria-label="Select all students" /></th>
+                    <th scope="col">Student</th>
+                    <th scope="col">AI teachers</th>
+                    <th scope="col">Last sign-in</th>
+                    <th scope="col">Status</th>
+                    <th scope="col"><span class="sr-only">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody id="student-rows"></tbody>
+              </table>
+            </div>
+            <aside id="access-panel" class="side-panel" aria-labelledby="access-title" hidden>
+              <h2 id="access-title"></h2>
+              <p id="access-help" class="muted small-text"></p>
+              <div id="access-checklist" class="checklist"></div>
+              <div class="side-actions" id="access-actions"></div>
+            </aside>
+          </div>
+        </section>
+
+        <!-- Subjects -->
+        <section id="panel-subjects" class="panel" aria-labelledby="h-subjects" hidden>
+          <header class="panel-head">
+            <div>
+              <h1 id="h-subjects">Domains &amp; subjects</h1>
+              <p class="muted">Each subject has one AI teacher. Keywords help the tutor recognize questions that belong to this subject, and send other questions to the right teacher.</p>
+            </div>
+            <button id="add-domain" class="primary">+ Add domain</button>
+          </header>
+          <div id="catalog"></div>
+        </section>
+
+        <!-- Restrictions -->
+        <section id="panel-restrictions" class="panel" aria-labelledby="h-restrictions" hidden>
+          <header class="panel-head">
+            <div>
+              <h1 id="h-restrictions">Content restrictions</h1>
+              <p class="muted">
+                Restrictions are added to every AI teacher's instructions. Optional <strong>blocked keywords</strong> are also enforced
+                by the server: questions containing them are refused without asking the AI, and answers containing them are stopped and replaced.
+              </p>
+            </div>
+          </header>
+          <div class="two-col">
+            <div class="card">
+              <div class="card-head">
+                <h2>Questions the tutors must not answer</h2>
+                <button class="primary small" data-add-restriction="question">+ Add</button>
+              </div>
+              <ul id="restrictions-question" class="item-list"></ul>
+            </div>
+            <div class="card">
+              <div class="card-head">
+                <h2>Information never to include in answers</h2>
+                <button class="primary small" data-add-restriction="response">+ Add</button>
+              </div>
+              <ul id="restrictions-response" class="item-list"></ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- Goals -->
+        <section id="panel-goals" class="panel" aria-labelledby="h-goals" hidden>
+          <header class="panel-head">
+            <div>
+              <h1 id="h-goals">Learning goals</h1>
+              <p class="muted">Active goals are included in every prompt sent to the AI, so all teachers guide students toward them.</p>
+            </div>
+          </header>
+          <form id="goal-form" class="inline-form">
+            <label for="goal-text" class="sr-only">New learning goal</label>
+            <input id="goal-text" type="text" maxlength="1000" placeholder="e.g. Students can explain their code line by line" required />
+            <button type="submit" class="primary">Add goal</button>
+          </form>
+          <ol id="goal-list" class="item-list goal-list"></ol>
+        </section>
+
+        <!-- Prompt history -->
+        <section id="panel-prompts" class="panel" aria-labelledby="h-prompts" hidden>
+          <header class="panel-head">
+            <div>
+              <h1 id="h-prompts">Prompt history</h1>
+              <p class="muted">Every message students send is recorded here, including messages the tutor refused. Flagged entries need your attention.</p>
+            </div>
+          </header>
+          <form id="prompt-filters" class="filters">
+            <div><label for="f-student">Student</label><select id="f-student"></select></div>
+            <div><label for="f-subject">Subject</label><select id="f-subject"></select></div>
+            <div><label for="f-from">From</label><input id="f-from" type="date" /></div>
+            <div><label for="f-to">To</label><input id="f-to" type="date" /></div>
+            <div class="grow"><label for="f-q">Search text</label><input id="f-q" type="search" placeholder="Words in the prompt" /></div>
+            <div class="check"><input id="f-flagged" type="checkbox" /><label for="f-flagged">Flagged only</label></div>
+            <div class="filter-buttons">
+              <button type="submit" class="primary">Apply</button>
+              <button type="button" id="f-reset" class="secondary">Reset</button>
+            </div>
+          </form>
+          <div class="toolbar">
+            <span id="prompt-count" class="muted"></span>
+            <div class="spacer"></div>
+            <button id="delete-filtered" class="danger small">Delete matching history</button>
+            <button id="delete-all" class="danger small">Delete all history</button>
+          </div>
+          <div class="table-wrap">
+            <table class="table prompts">
+              <thead>
+                <tr>
+                  <th scope="col">Time</th>
+                  <th scope="col">Student</th>
+                  <th scope="col">Subject</th>
+                  <th scope="col">Prompt</th>
+                  <th scope="col">Flag</th>
+                  <th scope="col"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="prompt-rows"></tbody>
+            </table>
+          </div>
+          <div class="pager">
+            <button id="prev-page" class="secondary small">← Newer</button>
+            <span id="page-info" class="muted"></span>
+            <button id="next-page" class="secondary small">Older →</button>
+          </div>
+        </section>
+
+        <!-- Settings -->
+        <section id="panel-settings" class="panel" aria-labelledby="h-settings" hidden>
+          <header class="panel-head">
+            <div><h1 id="h-settings">System &amp; teachers</h1></div>
+            <button id="refresh-status" class="secondary">Refresh status</button>
+          </header>
+          <div class="card">
+            <h2>Language model (LM Studio)</h2>
+            <dl id="status" class="status"></dl>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h2>Teacher accounts</h2>
+              <button id="add-admin" class="primary small">+ Add teacher</button>
+            </div>
+            <ul id="admin-list" class="item-list"></ul>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="form-dialog" aria-labelledby="dialog-title">
+      <form id="dialog-form" method="dialog">
+        <h2 id="dialog-title"></h2>
+        <div id="dialog-fields"></div>
+        <p id="dialog-error" class="error" role="alert"></p>
+        <div class="dialog-buttons">
+          <button type="button" id="dialog-cancel" class="secondary">Cancel</button>
+          <button type="submit" id="dialog-submit" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>

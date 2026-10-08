@@ -39,6 +39,9 @@ build/Release
 
 # Dependency directories
 node_modules/
+
+# AI Tutor server data (database, generated secrets)
+server/data/
 jspm_packages/
 
 # Snowpack dependency directory (https://snowpack.dev/)

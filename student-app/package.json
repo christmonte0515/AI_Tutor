@@ -1,0 +1,13 @@
+{
+  "name": "ai-tutor-student",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Tutor - student app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  }
+}

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: http: https:; connect-src *"
+    />
+    <title>AI Tutor</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#composer-input">Skip to message box</a>
+    <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
+
+    <!-- Sign in / sign up -->
+    <main id="auth-view" class="auth" hidden>
+      <div class="auth-card">
+        <div class="auth-brand">
+          <span class="brand-mark" aria-hidden="true">AI</span>
+          <div>
+            <h1>AI Tutor</h1>
+            <p class="muted">Your study partner for every IT subject</p>
+          </div>
+        </div>
+        <div id="auth-logos" class="logo-strip" aria-hidden="true"></div>
+        <p class="auth-note">Each subject has its own AI teacher. They're AI assistants, not human teachers.</p>
+
+        <div class="tabs" role="tablist" aria-label="Account">
+          <button role="tab" id="tab-login" aria-selected="true" aria-controls="login-form">Sign in</button>
+          <button role="tab" id="tab-signup" aria-selected="false" aria-controls="signup-form">Create account</button>
+        </div>
+
+        <form id="login-form" role="tabpanel" aria-labelledby="tab-login">
+          <label for="login-email">Student email</label>
+          <input id="login-email" type="email" autocomplete="username" required />
+          <label for="login-password">Password</label>
+          <input id="login-password" type="password" autocomplete="current-password" required />
+          <button type="submit" class="primary">Sign in</button>
+        </form>
+
+        <form id="signup-form" role="tabpanel" aria-labelledby="tab-signup" hidden>
+          <label for="signup-name">Name (shown to your teacher)</label>
+          <input id="signup-name" type="text" autocomplete="nickname" maxlength="80" />
+          <label for="signup-email">Student email</label>
+          <input id="signup-email" type="email" autocomplete="username" required />
+          <label for="signup-password">Password (at least 8 characters)</label>
+          <input id="signup-password" type="password" autocomplete="new-password" minlength="8" required />
+          <label for="signup-password2">Repeat password</label>
+          <input id="signup-password2" type="password" autocomplete="new-password" minlength="8" required />
+          <p class="privacy-note">
+            Your conversations are stored securely so you can come back to them. Your teachers can see the questions
+            you send, to make sure the tutor is used for studying. Never share passwords or personal details in chat.
+          </p>
+          <button type="submit" class="primary">Create account</button>
+        </form>
+
+        <p id="auth-error" class="error" role="alert"></p>
+
+        <details class="server-settings">
+          <summary>Server settings</summary>
+          <label for="server-url">Server address</label>
+          <input id="server-url" type="url" />
+          <button type="button" id="save-server" class="secondary">Save</button>
+        </details>
+      </div>
+    </main>
+
+    <!-- Main app -->
+    <div id="app-view" class="app" hidden>
+      <header class="topbar">
+        <button id="toggle-sidebar" class="icon-btn" aria-label="Show conversations" aria-expanded="false">☰</button>
+        <span class="brand-mark small" aria-hidden="true">AI</span>
+        <span class="brand">AI Tutor</span>
+        <span class="ai-badge" title="All tutors are AI assistants, not human teachers">AI assistant, not a human</span>
+        <div class="spacer"></div>
+        <div class="a11y-controls" role="group" aria-label="Display settings">
+          <button id="font-down" class="icon-btn" aria-label="Smaller text">A−</button>
+          <button id="font-up" class="icon-btn" aria-label="Larger text">A+</button>
+          <button id="contrast" class="icon-btn" aria-pressed="false" aria-label="High contrast">◐</button>
+        </div>
+        <span id="user-avatar" class="user-avatar" aria-hidden="true"></span>
+        <span id="user-name" class="user-name"></span>
+        <button id="logout" class="secondary small">Sign out</button>
+      </header>
+
+      <div class="layout">
+        <nav id="sidebar" class="sidebar" aria-label="Conversations">
+          <button id="new-chat" class="primary block">+ New chat</button>
+          <h2 class="sidebar-title">Your conversations</h2>
+          <ul id="conversation-list" class="conversation-list"></ul>
+        </nav>
+
+        <main id="main" class="main">
+          <!-- Teacher picker -->
+          <section id="picker-view" class="picker" hidden aria-labelledby="picker-title">
+            <div class="picker-hero">
+              <p id="picker-greeting" class="eyebrow"></p>
+              <h1 id="picker-title" tabindex="-1">Choose a teacher</h1>
+              <p class="muted">Pick the AI teacher for the subject you want to study. Each teacher only answers questions about their own subject.</p>
+              <div class="search-box">
+                <label for="teacher-search" class="sr-only">Search teachers</label>
+                <input id="teacher-search" type="search" placeholder="Search subjects, e.g. Python, networks, SQL" autocomplete="off" />
+              </div>
+            </div>
+            <div id="picker-content"></div>
+          </section>
+
+          <!-- Chat -->
+          <section id="chat-view" class="chat" hidden aria-labelledby="chat-title">
+            <div class="chat-header">
+              <span id="chat-icon"></span>
+              <div class="chat-heading">
+                <h1 id="chat-title"></h1>
+                <p id="chat-subtitle" class="muted small-text"></p>
+              </div>
+              <span class="pill">AI tutor</span>
+            </div>
+            <div id="locked-banner" class="banner" hidden>
+              Your teacher has turned off access to this subject. You can still read this conversation, but you can't send new messages.
+            </div>
+            <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="off" tabindex="0"></div>
+
+            <div class="composer-area">
+              <div class="quick-actions" role="group" aria-label="Quick requests">
+                <button class="chip" data-quick="hint">💡 Give me a hint</button>
+                <button class="chip" data-quick="again">🔄 Explain it another way</button>
+                <button class="chip" data-quick="quiz">✅ Check my understanding</button>
+                <button class="chip" data-quick="plan">🗺️ Help me plan</button>
+                <button class="chip" data-quick="mistake">⚠️ I think that's wrong</button>
+              </div>
+              <form id="composer" class="composer">
+                <label for="composer-input" class="sr-only">Message your tutor</label>
+                <textarea
+                  id="composer-input"
+                  rows="2"
+                  maxlength="2000"
+                  placeholder="Ask a question or explain what you tried... (Enter to send, Shift+Enter for a new line)"
+                  aria-describedby="char-count"
+                ></textarea>
+                <div class="composer-buttons">
+                  <span id="char-count" class="muted small-text" aria-live="off">0 / 2000</span>
+                  <button type="button" id="stop" class="secondary" hidden>Stop</button>
+                  <button type="submit" id="send" class="primary">Send ➤</button>
+                </div>
+              </form>
+              <p class="muted small-text disclaimer">AI tutors can make mistakes. Check important facts with your teacher or official documentation.</p>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script src="markdown.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

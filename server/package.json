@@ -1,0 +1,21 @@
+{
+  "name": "ai-tutor-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Node.js API server for the AI Tutor apps (LM Studio + Qwen3 1.7B).",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "create-admin": "node scripts/create-admin.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "simple-icons": "^16.34.0"
+  }
+}

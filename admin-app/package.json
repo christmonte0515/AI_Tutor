@@ -1,0 +1,13 @@
+{
+  "name": "ai-tutor-admin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Tutor - teacher (admin) app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^44.7.0"
+  }
+}
