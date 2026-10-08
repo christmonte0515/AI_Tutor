@@ -5,19 +5,22 @@ Each subject has its own AI teacher. Students chat with the teachers their human
 
 | Package        | What it is                                                          |
 | -------------- | ------------------------------------------------------------------- |
-| `server/`      | Node.js API server (Express + built-in SQLite), talks to LM Studio  |
+| `server/`      | Node.js API server (Express + built-in SQLite), talks to Ollama     |
 | `admin-app/`   | Electron app for teachers                                           |
 | `student-app/` | Electron app for students (also served to browsers at `/student`)   |
 
 ## Requirements
 
 - Node.js 22.13 or newer (uses the built-in `node:sqlite`)
-- [LM Studio](https://lmstudio.ai) with **Qwen3 1.7B** downloaded
+- [Ollama](https://ollama.com) with the **Qwen3 1.7B** model
 
 ## Setup
 
-1. **LM Studio**: load `Qwen3 1.7B`, then start the local server (Developer tab → Start server, default port 1234).
-   Check the model id with `curl http://localhost:1234/v1/models`. The default is `qwen/qwen3-1.7b`; set `LMSTUDIO_MODEL` if yours differs.
+1. **Ollama**: install it from [ollama.com](https://ollama.com), then download the model:
+   ```bash
+   ollama pull qwen3:1.7b
+   ```
+   The Ollama app runs in the background on port 11434 (or start it with `ollama serve`). Check with `ollama list`.
 
 2. **Server**
    ```bash
@@ -52,10 +55,12 @@ Each subject shows the logo of its technology (Python, Cisco, MySQL, ...). The l
 | Variable                | Default                    | Purpose                                                                  |
 | ----------------------- | -------------------------- | ------------------------------------------------------------------------ |
 | `PORT` / `HOST`         | `3000` / `127.0.0.1`       | Use `HOST=0.0.0.0` to serve other computers on the school network        |
-| `LMSTUDIO_URL`          | `http://127.0.0.1:1234/v1` | LM Studio OpenAI-compatible endpoint                                     |
-| `LMSTUDIO_MODEL`        | `qwen/qwen3-1.7b`          | Model id as listed by LM Studio                                          |
-| `LMSTUDIO_TEMPERATURE`  | `0.3`                      | Low temperature keeps answers consistent                                 |
-| `LMSTUDIO_MAX_TOKENS`   | `700`                      | Maximum reply length                                                     |
+| `OLLAMA_URL`            | `http://127.0.0.1:11434`   | Ollama server address                                                    |
+| `OLLAMA_MODEL`          | `qwen3:1.7b`               | Model name as shown by `ollama list`                                     |
+| `OLLAMA_TEMPERATURE`    | `0.3`                      | Low temperature keeps answers consistent                                 |
+| `OLLAMA_MAX_TOKENS`     | `700`                      | Maximum reply length                                                     |
+| `OLLAMA_NUM_CTX`        | `8192`                     | Context window; fits the system prompt plus recent conversation          |
+| `OLLAMA_KEEP_ALIVE`     | `30m`                      | How long the model stays in memory after a request                       |
 | `ALLOWED_EMAIL_DOMAINS` | (any)                      | Comma-separated, e.g. `student.myschool.edu`; restricts student sign-up |
 | `SCOPE_CHECK`           | `hybrid`                   | Off-subject detection: `keyword`, `llm`, `hybrid` or `off`               |
 | `HISTORY_MESSAGES`      | `12`                       | Previous messages sent to the model for context                          |
@@ -76,7 +81,8 @@ A 1.7B model can't be relied on to follow every instruction, so the important ru
 - **Content restrictions**: teachers' rules are added to every prompt. Blocked keywords are also enforced in code. Questions containing them are refused without calling the model, and answers containing them are stopped mid-stream and replaced.
 - **Learning goals**: the active goals are added to the system prompt on every request.
 - **Boundary recognition**: messages about self-harm, abuse or bullying get a fixed reply referring the student to a teacher, counselor or parent, and are flagged in the prompt history.
-- **Hidden reasoning**: Qwen3's `<think>` reasoning is removed from the stream. `/no_think` is also added to the prompt to keep replies fast.
+- **Hidden reasoning**: Qwen3's thinking mode is turned off (Ollama `think: false`) so replies start quickly. Any `<think>` text that still appears is removed from the stream before students see it.
+- **Model always ready**: the server preloads the model at startup and asks Ollama to keep it in memory (`OLLAMA_KEEP_ALIVE`), so students don't wait for it to load.
 - **Privacy**: messages and prompt history are encrypted at rest with AES-256-GCM, and passwords are hashed with scrypt. Sign-in tokens are kept in memory only, so closing the app signs the student out (useful on shared lab computers).
 
 **Handled by the system prompt and the UI**

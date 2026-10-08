@@ -5,28 +5,28 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
 
-// Mock LM Studio: streams a reply with a <think> block and records the prompts it receives.
+// Mock Ollama (/api/chat streams NDJSON): replies with a <think> block and records requests.
 const received = [];
 let nextReply = '<think>reasoning</think>What do you think a process is? Try describing it in your own words.';
+let rejectThink = false;
 const mock = http.createServer((req, res) => {
   let body = '';
   req.on('data', (c) => (body += c));
   req.on('end', () => {
-    if (req.url.endsWith('/models')) {
-      res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ data: [{ id: 'qwen/qwen3-1.7b' }] }));
-    }
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen3:1.7b' }] }));
     const json = JSON.parse(body);
     received.push(json);
-    if (!json.stream) {
-      res.setHeader('Content-Type', 'application/json');
-      return res.end(JSON.stringify({ choices: [{ message: { content: '0' } }] }));
+    if (rejectThink && 'think' in json) {
+      res.statusCode = 400;
+      return res.end(JSON.stringify({ error: '"qwen3:1.7b" does not support thinking' }));
     }
-    res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+    if (!json.stream) return res.end(JSON.stringify({ message: { role: 'assistant', content: '0' }, done: true }));
+    res.setHeader('Content-Type', 'application/x-ndjson');
     for (const piece of nextReply.match(/.{1,7}/gs)) {
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`);
+      res.write(`${JSON.stringify({ message: { role: 'assistant', content: piece }, done: false })}\n`);
     }
-    res.end('data: [DONE]\n\n');
+    res.end(`${JSON.stringify({ message: { role: 'assistant', content: '' }, done: true })}\n`);
   });
 });
 
@@ -36,7 +36,7 @@ let server;
 test.before(async () => {
   await new Promise((r) => mock.listen(0, '127.0.0.1', r));
   process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-tutor-api-'));
-  process.env.LMSTUDIO_URL = `http://127.0.0.1:${mock.address().port}/v1`;
+  process.env.OLLAMA_URL = `http://127.0.0.1:${mock.address().port}`;
   process.env.SCOPE_CHECK = 'keyword';
   process.env.ADMIN_EMAIL = 'teacher@school.edu';
   process.env.ADMIN_PASSWORD = 'teacher-password';
@@ -149,7 +149,12 @@ test('full teacher and student flow', async () => {
   // Normal answer: think block removed, goals + restrictions in the system prompt.
   r = await call('POST', `/student/conversations/${convId}/messages`, { token: student.token, body: { content: 'What is a process in an operating system?' } });
   assert.equal(replyText(r.events), 'What do you think a process is? Try describing it in your own words.');
-  const system = received.at(-1).messages[0].content;
+  const sent = received.at(-1);
+  assert.equal(sent.model, 'qwen3:1.7b');
+  assert.equal(sent.think, false);
+  assert.equal(sent.keep_alive, '30m');
+  assert.equal(sent.options.num_ctx, 8192);
+  const system = sent.messages[0].content;
   assert.match(system, /Explain concepts using correct technical vocabulary/);
   assert.match(system, /Answers to upcoming exams/);
   assert.match(system, /Never reveal the lab server password/);
@@ -185,6 +190,13 @@ test('full teacher and student flow', async () => {
   r = await call('GET', `/student/conversations/${convId}`, { token: student.token });
   assert.equal(r.json.messages.length, 1 + 5 * 2);
 
+  // Models without thinking support reject `think`; the client retries without it.
+  rejectThink = true;
+  r = await call('POST', `/student/conversations/${convId}/messages`, { token: student.token, body: { content: 'What is a thread in an operating system?' } });
+  assert.equal(replyText(r.events), 'OK.');
+  assert.ok(!('think' in received.at(-1)));
+  rejectThink = false;
+
   // Removing access locks old chats.
   await call('PUT', `/admin/students/${student.user.id}/subjects`, { token: admin, body: { subjectIds: [sql.id] } });
   r = await call('POST', `/student/conversations/${convId}/messages`, { token: student.token, body: { content: 'hello?' } });
@@ -192,7 +204,7 @@ test('full teacher and student flow', async () => {
 
   // Teacher sees, searches and deletes prompt history.
   r = await call('GET', '/admin/prompts', { token: admin });
-  assert.equal(r.json.total, 5);
+  assert.equal(r.json.total, 6);
   assert.equal(r.json.prompts.filter((p) => p.flag).length, 2);
   r = await call('GET', '/admin/prompts?q=bullied', { token: admin });
   assert.equal(r.json.total, 1);
@@ -201,7 +213,7 @@ test('full teacher and student flow', async () => {
   r = await call('DELETE', '/admin/prompts', { token: admin });
   assert.equal(r.status, 400);
   r = await call('DELETE', `/admin/prompts?studentId=${student.user.id}`, { token: admin });
-  assert.equal(r.json.deleted, 4);
+  assert.equal(r.json.deleted, 5);
 
   // Domain management: deleting a domain removes its subjects.
   r = await call('POST', '/admin/domains', { token: admin, body: { name: 'Game Development' } });

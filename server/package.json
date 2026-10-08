@@ -2,7 +2,7 @@
   "name": "ai-tutor-server",
   "version": "1.0.0",
   "private": true,
-  "description": "Node.js API server for the AI Tutor apps (LM Studio + Qwen3 1.7B).",
+  "description": "Node.js API server for the AI Tutor apps (Ollama + Qwen3 1.7B).",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",

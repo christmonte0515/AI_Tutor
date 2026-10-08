@@ -25,7 +25,7 @@ module.exports = function adminRoutes(db) {
 
   // ---- Status -------------------------------------------------------------
   router.get('/status', async (req, res) => {
-    res.json({ model: config.lmStudio.model, lmStudioUrl: config.lmStudio.baseUrl, lmStudio: await llm.health() });
+    res.json({ model: config.ollama.model, ollamaUrl: config.ollama.baseUrl, ollama: await llm.health() });
   });
 
   // ---- Students & access --------------------------------------------------

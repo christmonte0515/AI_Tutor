@@ -40,12 +40,15 @@ module.exports = {
   // Empty list = any email domain may sign up.
   allowedEmailDomains: list(process.env.ALLOWED_EMAIL_DOMAINS),
 
-  lmStudio: {
-    baseUrl: (process.env.LMSTUDIO_URL || 'http://127.0.0.1:1234/v1').replace(/\/$/, ''),
-    model: process.env.LMSTUDIO_MODEL || 'qwen/qwen3-1.7b',
-    temperature: Number(process.env.LMSTUDIO_TEMPERATURE || 0.3),
-    maxTokens: int(process.env.LMSTUDIO_MAX_TOKENS, 700),
-    timeoutMs: int(process.env.LMSTUDIO_TIMEOUT_MS, 120000),
+  ollama: {
+    baseUrl: (process.env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/$/, ''),
+    model: process.env.OLLAMA_MODEL || 'qwen3:1.7b',
+    temperature: Number(process.env.OLLAMA_TEMPERATURE || 0.3),
+    maxTokens: int(process.env.OLLAMA_MAX_TOKENS, 700),
+    contextLength: int(process.env.OLLAMA_NUM_CTX, 8192),
+    // How long Ollama keeps the model in memory after a request (avoids reload delays).
+    keepAlive: process.env.OLLAMA_KEEP_ALIVE || '30m',
+    timeoutMs: int(process.env.OLLAMA_TIMEOUT_MS, 120000),
   },
 
   // keyword | llm | hybrid | off

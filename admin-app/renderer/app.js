@@ -680,15 +680,17 @@
   // ---------------------------------------------------------------- Settings
   async function loadSettings() {
     const [status, { admins }] = await Promise.all([api('GET', '/admin/status'), api('GET', '/admin/admins')]);
-    const lm = status.lmStudio;
+    const lm = status.ollama;
     const dl = $('status');
     dl.innerHTML = '';
     const row = (k, v) => dl.append(h('dt', {}, k), h('dd', {}, v));
-    row('LM Studio address', status.lmStudioUrl);
+    row('Ollama address', status.ollamaUrl);
     row('Model', status.model);
-    row('Connection', lm.ok ? h('span', { class: 'badge ok' }, 'Connected') : h('span', { class: 'badge alert' }, `Not reachable: ${lm.error}`));
+    row('Connection', lm.ok ? h('span', { class: 'badge ok' }, 'Connected') : h('span', { class: 'badge alert' }, `Not reachable: ${lm.error}. Start Ollama on the server computer.`));
     if (lm.ok) {
-      row('Model loaded', lm.modelLoaded ? h('span', { class: 'badge ok' }, 'Yes') : h('span', { class: 'badge warn' }, `No. Available: ${lm.models.join(', ') || 'none'}`));
+      row('Model installed', lm.modelInstalled
+        ? h('span', { class: 'badge ok' }, 'Yes')
+        : h('span', { class: 'badge warn' }, `No. Run "ollama pull ${status.model}" on the server. Installed: ${lm.models.join(', ') || 'none'}`));
     }
 
     const list = $('admin-list');

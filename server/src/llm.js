@@ -68,40 +68,61 @@ function stripThink(text) {
   return (f.push(text) + f.flush()).trim();
 }
 
+const { ollama } = config;
+
 function withTimeout(signal) {
-  const timeout = AbortSignal.timeout(config.lmStudio.timeoutMs);
+  const timeout = AbortSignal.timeout(ollama.timeoutMs);
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
-async function request(body, signal) {
-  const res = await fetch(`${config.lmStudio.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: config.lmStudio.model, ...body }),
-    signal: withTimeout(signal),
-  });
+// Models that don't support thinking reject the `think` option; remember that
+// and retry without it.
+let thinkSupported = true;
+
+async function chatRequest({ messages, stream, temperature, maxTokens }, signal) {
+  const send = () =>
+    fetch(`${ollama.baseUrl}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: ollama.model,
+        messages,
+        stream,
+        ...(thinkSupported ? { think: false } : {}),
+        keep_alive: ollama.keepAlive,
+        options: { temperature, num_predict: maxTokens, num_ctx: ollama.contextLength },
+      }),
+      signal: withTimeout(signal),
+    });
+
+  let res = await send();
   if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(`LM Studio returned ${res.status}: ${detail.slice(0, 300)}`);
+    let detail = await res.text().catch(() => '');
+    if (thinkSupported && /think/i.test(detail)) {
+      thinkSupported = false;
+      res = await send();
+      if (res.ok) return res;
+      detail = await res.text().catch(() => '');
+    }
+    if (res.status === 404 && /model/i.test(detail)) {
+      throw new Error(`Ollama model "${ollama.model}" is not installed. Run: ollama pull ${ollama.model}`);
+    }
+    throw new Error(`Ollama returned ${res.status}: ${detail.slice(0, 300)}`);
   }
   return res;
 }
 
 async function complete(messages, { maxTokens = 16, temperature = 0, signal } = {}) {
-  const res = await request({ messages, max_tokens: maxTokens, temperature, stream: false }, signal);
+  const res = await chatRequest({ messages, stream: false, temperature, maxTokens }, signal);
   const json = await res.json();
-  return stripThink(json.choices?.[0]?.message?.content || '');
+  return stripThink(json.message?.content || '');
 }
 
 // Calls onToken(text) for each visible chunk; returns the full visible answer.
+// Ollama streams newline-delimited JSON objects.
 async function streamChat(messages, { onToken, signal } = {}) {
-  const res = await request(
-    {
-      messages,
-      stream: true,
-      temperature: config.lmStudio.temperature,
-      max_tokens: config.lmStudio.maxTokens,
-    },
+  const res = await chatRequest(
+    { messages, stream: true, temperature: ollama.temperature, maxTokens: ollama.maxTokens },
     signal
   );
 
@@ -114,38 +135,55 @@ async function streamChat(messages, { onToken, signal } = {}) {
     full += text;
     onToken?.(text);
   };
+  const handleLine = (line) => {
+    if (!line.trim()) return;
+    let data;
+    try {
+      data = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (data.error) throw new Error(`Ollama error: ${data.error}`);
+    if (data.message?.content) emit(filter.push(data.message.content));
+  };
 
   for await (const chunk of res.body) {
     pending += decoder.decode(chunk, { stream: true });
     let nl;
     while ((nl = pending.indexOf('\n')) !== -1) {
-      const line = pending.slice(0, nl).trim();
+      handleLine(pending.slice(0, nl));
       pending = pending.slice(nl + 1);
-      if (!line.startsWith('data:')) continue;
-      const data = line.slice(5).trim();
-      if (data === '[DONE]') continue;
-      try {
-        const delta = JSON.parse(data).choices?.[0]?.delta?.content;
-        if (delta) emit(filter.push(delta));
-      } catch {
-        // ignore keep-alive or malformed lines
-      }
     }
   }
+  handleLine(pending);
   emit(filter.flush());
   return full.trim();
 }
 
+const modelMatches = (name) => name === ollama.model || name === `${ollama.model}:latest`;
+
 async function health() {
   try {
-    const res = await fetch(`${config.lmStudio.baseUrl}/models`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${ollama.baseUrl}/api/tags`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const json = await res.json();
-    const models = (json.data || []).map((m) => m.id);
-    return { ok: true, models, modelLoaded: models.includes(config.lmStudio.model) };
+    const models = (json.models || []).map((m) => m.name || m.model);
+    return { ok: true, models, modelInstalled: models.some(modelMatches) };
   } catch (err) {
     return { ok: false, error: err.message };
   }
 }
 
-module.exports = { ThinkFilter, stripThink, complete, streamChat, health };
+// Loads the model into memory so the first student doesn't wait for it.
+async function warmUp() {
+  const res = await fetch(`${ollama.baseUrl}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: ollama.model, keep_alive: ollama.keepAlive }),
+    signal: AbortSignal.timeout(ollama.timeoutMs),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  await res.text();
+}
+
+module.exports = { ThinkFilter, stripThink, complete, streamChat, health, warmUp };
