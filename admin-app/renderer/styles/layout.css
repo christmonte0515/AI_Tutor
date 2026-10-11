@@ -1,0 +1,23 @@
+.auth { min-height: 100%; display: grid; place-items: center; padding: 1.5rem; }
+.auth-card { width: min(420px, 100%); background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 2rem; }
+.auth-card .primary { margin-top: 1.2rem; }
+.server-settings { margin-top: 1rem; font-size: 0.9rem; }
+.server-settings button { margin-top: 0.5rem; }
+
+.app { display: flex; height: 100%; }
+.nav { width: 230px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); padding: 1rem 0.75rem; display: flex; flex-direction: column; gap: 0.2rem; }
+.brand { font-weight: 800; font-size: 1.1rem; padding: 0 0.5rem 1rem; }
+.brand span { display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.nav-item { text-align: left; background: none; padding: 0.55rem 0.75rem; }
+.nav-item:hover { background: var(--surface-2); }
+.nav-item[aria-current='page'] { background: var(--surface-2); font-weight: 700; box-shadow: inset 3px 0 0 var(--primary); }
+.nav-footer { margin-top: auto; display: flex; flex-direction: column; gap: 0.4rem; padding: 0.5rem; font-size: 0.85rem; }
+
+.content { flex: 1; min-width: 0; overflow-y: auto; }
+.panel { padding: 1.5rem 2rem 3rem; }
+.panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
+.panel-head p { margin: 0.2rem 0 0; max-width: 75ch; }
+.toolbar { display: flex; align-items: center; gap: 0.75rem; margin: 0.75rem 0; }
+.toolbar input { max-width: 340px; }
+.spacer { flex: 1; }
+.two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1rem; align-items: start; }

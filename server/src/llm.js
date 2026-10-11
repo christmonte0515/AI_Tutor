@@ -79,7 +79,53 @@ function withTimeout(signal) {
 // and retry without it.
 let thinkSupported = true;
 
+// One local model. Overlapping chats reset the connection and surface as
+// "fetch failed", so chat calls run one at a time.
+let chatQueue = Promise.resolve();
+function enqueueChat(fn) {
+  const run = chatQueue.then(fn, fn);
+  chatQueue = run.then(
+    () => {},
+    () => {}
+  );
+  return run;
+}
+
+function failureText(err) {
+  const code = err?.cause?.code;
+  const detail = err?.cause?.message || err.message;
+  return code ? `${detail} (${code})` : detail;
+}
+
+function isTransientFetch(err) {
+  if (!err || err.name === 'AbortError' || err.name === 'TimeoutError') return false;
+  const code = err.cause?.code || '';
+  return (
+    err.message === 'fetch failed' ||
+    ['ECONNRESET', 'ECONNREFUSED', 'EPIPE', 'EAI_AGAIN', 'ETIMEDOUT', 'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT'].includes(code)
+  );
+}
+
+function delay(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 async function chatRequest({ messages, stream, temperature, maxTokens }, signal) {
+  console.log(`[llm] prompt\n${messages.map((m) => `--- ${m.role} ---\n${m.content}`).join('\n')}`);
   const send = () =>
     fetch(`${ollama.baseUrl}/api/chat`, {
       method: 'POST',
@@ -95,32 +141,44 @@ async function chatRequest({ messages, stream, temperature, maxTokens }, signal)
       signal: withTimeout(signal),
     });
 
-  let res = await send();
-  if (!res.ok) {
-    let detail = await res.text().catch(() => '');
-    if (thinkSupported && /think/i.test(detail)) {
-      thinkSupported = false;
-      res = await send();
-      if (res.ok) return res;
-      detail = await res.text().catch(() => '');
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        let res = await send();
+        if (!res.ok) {
+          let detail = await res.text().catch(() => '');
+          if (thinkSupported && /think/i.test(detail)) {
+            thinkSupported = false;
+            res = await send();
+            if (res.ok) return res;
+            detail = await res.text().catch(() => '');
+          }
+          if (res.status === 404 && /model/i.test(detail)) {
+            throw new Error(`Ollama model "${ollama.model}" is not installed. Run: ollama pull ${ollama.model}`);
+          }
+          throw new Error(`Ollama returned ${res.status}: ${detail.slice(0, 300)}`);
+        }
+        return res;
+    } catch (err) {
+      lastError = err;
+      if (signal?.aborted || !isTransientFetch(err) || attempt === 3) break;
+      console.warn(`[llm] Ollama connection failed (${failureText(err)}). Retry ${attempt} of 2.`);
+      await delay(500 * attempt, signal);
     }
-    if (res.status === 404 && /model/i.test(detail)) {
-      throw new Error(`Ollama model "${ollama.model}" is not installed. Run: ollama pull ${ollama.model}`);
-    }
-    throw new Error(`Ollama returned ${res.status}: ${detail.slice(0, 300)}`);
   }
-  return res;
+  if (isTransientFetch(lastError)) throw new Error(`Could not reach Ollama: ${failureText(lastError)}`);
+  throw lastError;
 }
 
 async function complete(messages, { maxTokens = 16, temperature = 0, signal } = {}) {
-  const res = await chatRequest({ messages, stream: false, temperature, maxTokens }, signal);
-  const json = await res.json();
-  return stripThink(json.message?.content || '');
+  return enqueueChat(async () => {
+    const res = await chatRequest({ messages, stream: false, temperature, maxTokens }, signal);
+    const json = await res.json();
+    return stripThink(json.message?.content || '');
+  });
 }
 
-// Calls onToken(text) for each visible chunk; returns the full visible answer.
-// Ollama streams newline-delimited JSON objects.
-async function streamChat(messages, { onToken, signal } = {}) {
+async function readChatStream(messages, { onToken, signal }) {
   const res = await chatRequest(
     { messages, stream: true, temperature: ollama.temperature, maxTokens: ollama.maxTokens },
     signal
@@ -147,17 +205,46 @@ async function streamChat(messages, { onToken, signal } = {}) {
     if (data.message?.content) emit(filter.push(data.message.content));
   };
 
-  for await (const chunk of res.body) {
-    pending += decoder.decode(chunk, { stream: true });
-    let nl;
-    while ((nl = pending.indexOf('\n')) !== -1) {
-      handleLine(pending.slice(0, nl));
-      pending = pending.slice(nl + 1);
+  try {
+    for await (const chunk of res.body) {
+      pending += decoder.decode(chunk, { stream: true });
+      let nl;
+      while ((nl = pending.indexOf('\n')) !== -1) {
+        handleLine(pending.slice(0, nl));
+        pending = pending.slice(nl + 1);
+      }
     }
+  } catch (err) {
+    if (full) err.partial = true;
+    throw err;
   }
   handleLine(pending);
   emit(filter.flush());
   return full.trim();
+}
+
+// Calls onToken(text) for each visible chunk; returns the full visible answer.
+// Ollama streams newline-delimited JSON objects. A drop before any text is retried once.
+async function streamChat(messages, options = {}) {
+  return enqueueChat(() => readStreamWithRetry(messages, options));
+}
+
+async function readStreamWithRetry(messages, options) {
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      return await readChatStream(messages, options);
+    } catch (err) {
+      lastError = err;
+      if (options.signal?.aborted || err.partial || !isTransientFetch(err) || attempt === 2) {
+        if (isTransientFetch(err)) throw new Error(`Could not reach Ollama: ${failureText(err)}`);
+        throw err;
+      }
+      console.warn(`[llm] Answer stream dropped (${failureText(err)}). Retrying once.`);
+      await delay(500, options.signal);
+    }
+  }
+  throw lastError;
 }
 
 const modelMatches = (name) => name === ollama.model || name === `${ollama.model}:latest`;

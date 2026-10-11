@@ -8,7 +8,11 @@
       content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: http: https:; connect-src *"
     />
     <title>AI Tutor - Teacher</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" href="img/teacher.png" />
+    <link rel="stylesheet" href="styles/base.css" />
+    <link rel="stylesheet" href="styles/layout.css" />
+    <link rel="stylesheet" href="styles/components.css" />
+    <link rel="stylesheet" href="styles/pages.css" />
   </head>
   <body>
     <div id="sr-status" class="sr-only" role="status" aria-live="polite"></div>
@@ -53,7 +57,6 @@
           <header class="panel-head">
             <div>
               <h1 id="h-students">Students &amp; access</h1>
-              <p class="muted">Choose which AI teachers each student may use. Students can only talk to the teachers you enable.</p>
             </div>
           </header>
           <div class="toolbar">
@@ -91,7 +94,6 @@
           <header class="panel-head">
             <div>
               <h1 id="h-subjects">Domains &amp; subjects</h1>
-              <p class="muted">Each subject has one AI teacher. Keywords help the tutor recognize questions that belong to this subject, and send other questions to the right teacher.</p>
             </div>
             <button id="add-domain" class="primary">+ Add domain</button>
           </header>
@@ -103,10 +105,6 @@
           <header class="panel-head">
             <div>
               <h1 id="h-restrictions">Content restrictions</h1>
-              <p class="muted">
-                Restrictions are added to every AI teacher's instructions. Optional <strong>blocked keywords</strong> are also enforced
-                by the server: questions containing them are refused without asking the AI, and answers containing them are stopped and replaced.
-              </p>
             </div>
           </header>
           <div class="two-col">
@@ -132,7 +130,6 @@
           <header class="panel-head">
             <div>
               <h1 id="h-goals">Learning goals</h1>
-              <p class="muted">Active goals are included in every prompt sent to the AI, so all teachers guide students toward them.</p>
             </div>
           </header>
           <form id="goal-form" class="inline-form">
@@ -148,7 +145,6 @@
           <header class="panel-head">
             <div>
               <h1 id="h-prompts">Prompt history</h1>
-              <p class="muted">Every message students send is recorded here, including messages the tutor refused. Flagged entries need your attention.</p>
             </div>
           </header>
           <form id="prompt-filters" class="filters">
@@ -224,6 +220,6 @@
       </form>
     </dialog>
 
-    <script src="app.js"></script>
+    <script type="module" src="js/main.js"></script>
   </body>
 </html>

@@ -5,8 +5,8 @@
   "description": "Node.js API server for the AI Tutor apps (Ollama + Qwen3 1.7B).",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js",
+    "start": "nodemon --env-file-if-exists=.env src/index.js",
+    "dev": "nodemon --env-file-if-exists=.env src/index.js",
     "create-admin": "node scripts/create-admin.js",
     "test": "node --test \"test/*.test.js\""
   },
@@ -16,6 +16,7 @@
   "dependencies": {
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
-    "simple-icons": "^16.34.0"
+    "simple-icons": "^16.34.0",
+    "nodemon": "^3.1.9"
   }
 }

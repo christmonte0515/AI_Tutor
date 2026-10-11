@@ -1,0 +1,20 @@
+/* ---------- Brand & logo tiles ---------- */
+.brand-mark {
+  display: inline-grid; place-items: center; width: 2.75rem; height: 2.75rem; border-radius: 12px;
+  background: linear-gradient(135deg, #4dce78, #1f7a45); color: #06210f; font-weight: 800; font-size: 1rem;
+  letter-spacing: 0.02em; box-shadow: 0 4px 10px rgba(31, 122, 69, 0.35); flex-shrink: 0;
+}
+.brand-mark.small { width: 2rem; height: 2rem; border-radius: 9px; font-size: 0.75rem; box-shadow: none; }
+
+.icon-tile {
+  display: inline-grid; place-items: center; flex-shrink: 0; overflow: hidden;
+  border-radius: 28%; background: var(--surface-2);
+}
+.icon-tile img { width: 100%; height: 100%; display: block; }
+.icon-tile.sm { width: 2rem; height: 2rem; font-size: 0.7rem; }
+.icon-tile.md { width: 2.75rem; height: 2.75rem; font-size: 0.9rem; }
+.icon-tile.lg { width: 3.25rem; height: 3.25rem; font-size: 1.05rem; }
+.icon-tile.fallback {
+  --tile-hue: 230;
+  background: hsl(var(--tile-hue) 28% 22%); color: hsl(var(--tile-hue) 45% 78%); font-weight: 700;
+}

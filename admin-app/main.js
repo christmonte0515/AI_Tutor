@@ -1,7 +1,11 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell } = require('electron');
 const path = require('node:path');
 
 const serverUrl = process.env.AI_TUTOR_SERVER_URL || 'http://localhost:3000';
+const icon = path.join(__dirname, 'renderer', 'img', 'teacher.png');
+
+if (process.platform === 'win32') app.setAppUserModelId('edu.school.ai-tutor.teacher');
+Menu.setApplicationMenu(null);
 
 ipcMain.on('get-config', (event) => {
   event.returnValue = { serverUrl };
@@ -14,6 +18,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 600,
     title: 'AI Tutor - Teacher',
+    icon,
     backgroundColor: '#f6f7fb',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

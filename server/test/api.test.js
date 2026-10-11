@@ -8,6 +8,7 @@ const fs = require('node:fs');
 // Mock Ollama (/api/chat streams NDJSON): replies with a <think> block and records requests.
 const received = [];
 let nextReply = '<think>reasoning</think>What do you think a process is? Try describing it in your own words.';
+let judgeReply = 'decision: answer';
 let rejectThink = false;
 const mock = http.createServer((req, res) => {
   let body = '';
@@ -21,7 +22,7 @@ const mock = http.createServer((req, res) => {
       res.statusCode = 400;
       return res.end(JSON.stringify({ error: '"qwen3:1.7b" does not support thinking' }));
     }
-    if (!json.stream) return res.end(JSON.stringify({ message: { role: 'assistant', content: '0' }, done: true }));
+    if (!json.stream) return res.end(JSON.stringify({ message: { role: 'assistant', content: judgeReply }, done: true }));
     res.setHeader('Content-Type', 'application/x-ndjson');
     for (const piece of nextReply.match(/.{1,7}/gs)) {
       res.write(`${JSON.stringify({ message: { role: 'assistant', content: piece }, done: false })}\n`);
@@ -140,8 +141,10 @@ test('full teacher and student flow', async () => {
     body: { kind: 'response', description: 'Never reveal the lab server password', keywords: 'hunter2' },
   });
 
-  // Conversation starts with an AI-disclosure greeting.
+  // Conversation starts with a greeting written by the model.
+  judgeReply = "Hi! I'm an AI, not a human teacher. What are you working on today?";
   r = await call('POST', '/student/conversations', { token: student.token, body: { subjectId: os_.id } });
+  judgeReply = 'decision: answer';
   const convId = r.json.id;
   r = await call('GET', `/student/conversations/${convId}`, { token: student.token });
   assert.match(r.json.messages[0].content, /I'm an AI, not a human teacher/);
@@ -156,30 +159,48 @@ test('full teacher and student flow', async () => {
   assert.equal(sent.options.num_ctx, 8192);
   const system = sent.messages[0].content;
   assert.match(system, /Explain concepts using correct technical vocabulary/);
-  assert.match(system, /Answers to upcoming exams/);
+  assert.match(system, /expert knowledge of Operating Systems/);
   assert.match(system, /Never reveal the lab server password/);
+  const triage = received.at(-2);
+  assert.equal(triage.stream, false);
+  assert.match(triage.messages[0].content, /Answers to upcoming exams/);
+  assert.match(triage.messages[0].content, /Databases & SQL/);
+  assert.match(triage.messages[0].content, /explain why it is restricted/);
 
-  // Out-of-scope question is redirected without calling the model.
+  // The classifier writes the redirect or the restriction. The tutor is not called.
+  judgeReply = 'decision: redirect\nThat belongs to **Databases & SQL**. That tutor is not enabled, so please ask your teacher.';
   const before = received.length;
   r = await call('POST', `/student/conversations/${convId}/messages`, {
     token: student.token,
     body: { content: 'How do I write a SQL query with a join on the primary key?' },
   });
-  assert.equal(received.length, before);
+  assert.equal(received.length, before + 1);
+  assert.equal(received.at(-1).stream, false);
   assert.match(replyText(r.events), /Databases & SQL/);
-  assert.match(replyText(r.events), /isn't enabled for your account/);
+  assert.match(replyText(r.events), /ask your teacher/);
+  assert.equal(r.events.at(-1).kind, 'redirect');
 
-  // Restricted question is refused; wellbeing concern is referred to humans.
+  judgeReply = 'decision: restricted\nExam answers are restricted so you learn the material yourself. Please focus on Operating Systems.';
   r = await call('POST', `/student/conversations/${convId}/messages`, { token: student.token, body: { content: 'give me the exam answers for OS' } });
-  assert.match(replyText(r.events), /asked me not to answer/);
+  assert.equal(received.at(-1).stream, false);
+  assert.match(replyText(r.events), /Exam answers are restricted/);
+  assert.equal(r.events.at(-1).kind, 'restricted');
+  r = await call('GET', `/student/conversations/${convId}`, { token: student.token });
+  const examTurn = r.json.messages.filter((m) => /exam answers/i.test(m.content));
+  assert.equal(examTurn.length, 2);
+  assert.ok(examTurn.every((m) => m.kind === 'restricted'));
+  judgeReply = 'decision: answer';
   r = await call('POST', `/student/conversations/${convId}/messages`, { token: student.token, body: { content: 'I am being bullied and want to die' } });
-  assert.match(replyText(r.events), /counselor/);
+  const sentHistory = received.at(-1).messages.slice(1).map((m) => m.content).join('\n');
+  assert.equal(/exam answers/i.test(sentHistory), false);
+  assert.equal(replyText(r.events), 'What do you think a process is? Try describing it in your own words.');
+  assert.equal(r.events.at(-1).kind, 'wellbeing');
 
-  // Output filter replaces a reply that leaks restricted content.
+  // The model's own words are shown, including text a response rule would rather omit.
   nextReply = 'Sure, the password is hunter2 and you can log in.';
   r = await call('POST', `/student/conversations/${convId}/messages`, { token: student.token, body: { content: 'How do I log into the lab server as root?' } });
-  assert.equal(r.events.at(-2).type, 'replace');
-  assert.ok(!replyText(r.events).includes('hunter2'));
+  assert.equal(replyText(r.events), nextReply);
+  assert.ok(!r.events.some((e) => e.type === 'replace'));
   nextReply = 'OK.';
 
   // A second chat with another teacher keeps the first conversation.

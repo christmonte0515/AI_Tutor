@@ -5,9 +5,10 @@
   "description": "AI Tutor - teacher (admin) app",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "node scripts/dev.js"
   },
   "devDependencies": {
-    "electron": "^44.7.0"
+    "electron": "^44.7.0",
+    "nodemon": "^3.1.9"
   }
 }

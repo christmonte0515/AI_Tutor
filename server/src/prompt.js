@@ -5,27 +5,121 @@ function numbered(items) {
   return items.map((t, i) => `${i + 1}. ${t}`).join('\n');
 }
 
-function buildSystemPrompt({ subject, goals, restrictions, otherSubjects, studentName, frustrated }) {
-  const questionRules = restrictions.filter((r) => r.kind === 'question').map((r) => r.description);
-  const responseRules = restrictions.filter((r) => r.kind === 'response').map((r) => r.description);
+function ruleLines(rules) {
+  return rules
+    .map((r, i) => {
+      const keywords = String(r.keywords || '').trim();
+      const description = String(r.description || '').trim() || '(no description)';
+      return `${i + 1}. ${description}${keywords ? `\n   Blocked keywords: ${keywords}` : ''}`;
+    })
+    .join('\n');
+}
+
+function teacherName(subject) {
+  return subject.teacher_name || subject.teacherName || `${subject.name} Tutor`;
+}
+
+function subjectCatalog(subjects, current, allowedIds) {
+  return subjects
+    .map((s) => {
+      const teacher = teacherName(s);
+      if (s.id === current.id) return `- ${s.name} (AI teacher: ${teacher}) — this chat`;
+      const available = allowedIds?.has?.(s.id);
+      return `- ${s.name} (AI teacher: ${teacher}) — ${available ? 'this student can ask this tutor' : 'not enabled for this student'}`;
+    })
+    .join('\n');
+}
+
+// First model call. It only classifies the question and, for a refusal or a
+// redirect, writes the short message the student will see.
+function buildTriagePrompt({ subject, restrictions, subjects = [], allowedSubjectIds }) {
+  const questionRules = restrictions.filter((r) => r.kind === 'question');
+  const allowed = allowedSubjectIds instanceof Set ? allowedSubjectIds : new Set(allowedSubjectIds || []);
+  return `You classify one student message for the ${subject.name} tutor. You do not teach and you do not answer the question.
+
+Choose exactly one decision:
+- answer: greetings, questions about the tutor, and anything about ${subject.name}, including its history and how to learn it. Also choose answer when you are unsure.
+- restricted: the message asks for a restricted topic listed below.
+- redirect: the message is about a different subject in the list below.
+
+Restricted topics:
+${questionRules.length ? ruleLines(questionRules) : '(none)'}
+
+Subjects:
+${subjectCatalog(subjects, subject, allowed) || `(none besides ${subject.name})`}
+
+Reply with nothing before the first line.
+If the decision is answer, reply with only:
+decision: answer
+
+If the decision is restricted, explain why it is restricted, using the rule above, and encourage the student to focus on their studies in ${subject.name}. Do not answer the question.
+decision: restricted
+<message to the student>
+
+If the decision is redirect, name the other subject and its AI teacher. If that tutor is marked as one this student can ask, tell them to ask that tutor. If it is not enabled, tell them to ask their human teacher. Invite them back to ${subject.name}. Do not explain the other subject.
+decision: redirect
+<message to the student>
+
+/no_think`;
+}
+
+function parseTriage(text) {
+  const clean = String(text || '').replace(/\r/g, '').trim();
+  const re = /decision\s*:\s*(answer|restricted|redirect)\b/gi;
+  let match = null;
+  for (let found = re.exec(clean); found; found = re.exec(clean)) match = found;
+  if (!match) return { decision: 'answer', message: '' };
+  const decision = match[1].toLowerCase();
+  const message = clean
+    .slice(match.index + match[0].length)
+    .replace(/<message to the student>/gi, '')
+    .replace(/^\s*\n?/, '')
+    .replace(/^message\s*:\s*/i, '')
+    .trim();
+  return { decision, message };
+}
+
+// Restricted questions and the replies that belong to them stay in the database,
+// but they are not sent back to the model. A restricted reply also drops the
+// question before it when that question was stored earlier without a flag.
+function selectHistory(messages) {
+  const skip = new Set();
+  messages.forEach((message, index) => {
+    if (message.kind !== 'restricted') return;
+    skip.add(index);
+    if (message.role === 'user' && messages[index + 1]?.role === 'assistant') skip.add(index + 1);
+    if (message.role === 'assistant' && messages[index - 1]?.role === 'user') skip.add(index - 1);
+  });
+  const kept = messages.filter(
+    (message, index) => !skip.has(index) && !(message.role === 'assistant' && (message.kind === 'redirect' || message.kind === 'filtered'))
+  );
+  // A user turn with no stored reply is a failed generation. Sending it again
+  // makes the next prompt longer and more likely to drop the connection.
+  return kept.filter((message, index) => message.role !== 'user' || kept[index + 1]?.role === 'assistant');
+}
+
+function buildSystemPrompt({ subject, goals, restrictions, studentName, frustrated }) {
+  const responseRules = restrictions.filter((r) => r.kind === 'response');
 
   const sections = [
     `You are "${subject.teacher_name}", an AI tutor for the subject "${subject.name}" (domain: ${subject.domain_name}) at an information technology school.` +
       (subject.description ? ` Subject scope: ${subject.description}` : '') +
-      (studentName ? ` You are helping a student named ${studentName}.` : ''),
+      (studentName ? ` You are helping a student named ${studentName}.` : '') +
+      ` This question has already been accepted as appropriate for ${subject.name}. Answer it with expert knowledge of ${subject.name}. Reply only to the latest student message. A greeting gets a greeting. Do not repeat an earlier refusal.`,
 
     `## Who you are
 - You are an AI, not a human teacher. If asked, say so plainly. Remind the student that you can make mistakes and that their human teacher has the final word.
 - Never claim to have feelings, a body, or personal experiences.`,
 
-    `## Scope
-- Only teach "${subject.name}". If the student asks about something that belongs to another subject, do not answer it. Kindly recommend the matching subject teacher instead and offer to continue with ${subject.name}.` +
-      (otherSubjects.length ? `\n- Other subject teachers at the school: ${otherSubjects.join(', ')}.` : '') +
-      `\n- General study skills, motivation and how to learn ${subject.name} are in scope.`,
-
     goals.length
       ? `## School-wide learning goals (always guide the student toward these)\n${numbered(goals)}`
       : '',
+
+    `## Conversation
+- Talk in a free-flowing way. Answer greetings, and questions about yourself, such as "what are you doing?".
+- When you say you are an AI, use that to invite the student into ${subject.name} instead of ending the exchange.
+- If they drift away from class, do not refuse and do not lecture. Reply warmly in one or two sentences, then ask a concrete question that draws them into studying ${subject.name}.
+- Build on their last message. Keep the thread going until they are working on the subject.`,
 
     `## How to teach
 - Guide, do not replace, thinking. Start with a hint, a guiding question or the next small step. Do not give a full solution or finished code to an assignment-style problem on the first ask; give progressively stronger hints. Give a fuller explanation only after the student has tried, or when they ask to understand a concept (not to get an answer).
@@ -44,11 +138,8 @@ function buildSystemPrompt({ subject, goals, restrictions, otherSubjects, studen
 - If a topic is debated or depends on context, say so and present the main views.
 - If the student says you made a mistake, re-check carefully. If you were wrong, say so clearly, thank them and give the correction. If you were right, explain politely why.`,
 
-    questionRules.length || responseRules.length
-      ? `## School content restrictions (mandatory)` +
-        (questionRules.length ? `\nDo NOT answer questions about:\n${numbered(questionRules)}` : '') +
-        (responseRules.length ? `\nNEVER include the following in your responses:\n${numbered(responseRules)}` : '') +
-        `\nIf a request falls under these restrictions, politely say you can't help with that here and suggest asking a human teacher.`
+    responseRules.length
+      ? `## School content restrictions\nNEVER include the following in your responses:\n${ruleLines(responseRules)}`
       : '',
 
     `## Wellbeing and boundaries
@@ -69,56 +160,22 @@ function buildSystemPrompt({ subject, goals, restrictions, otherSubjects, studen
   return `${sections.filter(Boolean).join('\n\n')}\n\n/no_think`;
 }
 
-function greeting(subject) {
-  return (
-    `Hi! I'm **${subject.teacher_name}**, an AI tutor for **${subject.name}**.\n\n` +
-    `A few things to know:\n` +
-    `- I'm an AI, not a human teacher, so I can make mistakes. If something looks wrong, tell me and we'll check it together.\n` +
-    `- I'll usually guide you with hints and questions instead of handing over answers, so you build the skills yourself.\n` +
-    `- No question is too basic, and you can ask me to explain things again as many times as you like.\n\n` +
-    `What are you working on today?`
-  );
-}
+function buildGreetingPrompt(subject, studentName) {
+  const who = studentName ? ` for ${studentName}` : '';
+  return `You are "${subject.teacher_name}", an AI tutor for "${subject.name}".
+Write a short greeting${who}.
+- Say that you are an AI, not a human teacher, and that you can make mistakes.
+- Say that you guide with hints and questions.
+- Invite them to say what they are working on in ${subject.name}.
+Write only the greeting.
 
-function outOfScopeReply(current, target, hasAccess) {
-  return (
-    `Good question! That one belongs to **${target.name}**, and I'm the ${current.name} tutor, so I'll leave it to the expert. ` +
-    (hasAccess
-      ? `You can open a **New chat** and choose **${target.teacher_name}** for it.`
-      : `That teacher isn't enabled for your account yet. If you need it, ask your teacher to give you access.`) +
-    `\n\nIn the meantime, is there anything about **${current.name}** I can help you with?`
-  );
-}
-
-function restrictedQuestionReply() {
-  return (
-    `I'm sorry, but that's a topic your school has asked me not to answer here. ` +
-    `It's completely fine that you asked. If it's important, please talk to your teacher about it.\n\n` +
-    `Is there something else in this subject you'd like to work on?`
-  );
-}
-
-function restrictedResponseReply() {
-  return (
-    `I started writing an answer that included information your school has asked me not to share, so I stopped. ` +
-    `Let's try a different angle: can you tell me which part of the problem you're working on?`
-  );
-}
-
-function wellbeingReply() {
-  return (
-    `Thank you for telling me. What you're going through matters, and you deserve support from a real person.\n\n` +
-    `I'm an AI tutor, so I'm not the right one to help with this. Please talk to someone you trust **today**: your teacher, the school counselor, or a parent or guardian. ` +
-    `If you are in immediate danger or thinking about hurting yourself, contact your local emergency number or a crisis line right away.\n\n` +
-    `Whenever you're ready, I'm here to help with your studies.`
-  );
+/no_think`;
 }
 
 module.exports = {
+  buildTriagePrompt,
+  parseTriage,
+  selectHistory,
   buildSystemPrompt,
-  greeting,
-  outOfScopeReply,
-  restrictedQuestionReply,
-  restrictedResponseReply,
-  wellbeingReply,
+  buildGreetingPrompt,
 };

@@ -38,18 +38,6 @@ test('keyword matching respects word boundaries and symbols', () => {
   assert.ok(guards.containsKeyword('What is a SQL JOIN?', 'join'));
 });
 
-test('keyword scope check redirects clear out-of-scope questions', () => {
-  const subjects = [
-    { id: 1, name: 'Python Programming', keywords: 'python, list comprehension, def' },
-    { id: 2, name: 'Databases & SQL', keywords: 'sql, join, primary key, table' },
-  ];
-  const r = guards.keywordScopeCheck('How do I write a SQL join between two tables?', subjects[0], subjects);
-  assert.equal(r.decision, 'out_of_scope');
-  assert.equal(r.subject.id, 2);
-  assert.equal(guards.keywordScopeCheck('Python list comprehension with a sql string', subjects[0], subjects).decision, 'in_scope');
-  assert.equal(guards.keywordScopeCheck('Can you explain that again?', subjects[0], subjects).decision, 'unknown');
-});
-
 test('wellbeing and frustration detection', () => {
   assert.ok(guards.detectWellbeingConcern('honestly I want to die'));
   assert.ok(guards.detectWellbeingConcern("I'm being bullied at school"));
@@ -58,25 +46,75 @@ test('wellbeing and frustration detection', () => {
   assert.ok(!guards.detectFrustration('What is a variable?'));
 });
 
-test('restrictions: question keywords block, response keywords are detected', () => {
+test('response keywords are detected in a tutor answer', () => {
   const rs = [
     { kind: 'question', description: 'Exam answers', keywords: 'exam answers, test key' },
     { kind: 'response', description: 'No real exploit code for live sites', keywords: 'rm -rf /' },
   ];
-  assert.ok(guards.findQuestionRestriction('can you give me the exam answers', rs));
-  assert.ok(!guards.findQuestionRestriction('help me study for the exam', rs));
   assert.ok(guards.findResponseViolation('then run rm -rf / to clean up', rs));
+  assert.equal(guards.findResponseViolation('can you give me the exam answers', rs), null);
 });
 
-test('system prompt includes subject, goals, restrictions and AI disclosure', () => {
-  const p = prompts.buildSystemPrompt({
-    subject: { name: 'Operating Systems', teacher_name: 'OS Tutor', domain_name: 'Computer Systems', description: '' },
+test('triage prompt classifies, and only an accepted question is answered', () => {
+  const subject = { id: 1, name: 'Operating Systems', teacher_name: 'OS Tutor', domain_name: 'Computer Systems', description: '' };
+  const restrictions = [
+    { kind: 'question', description: 'Exam answers', keywords: 'exam answers' },
+    { kind: 'response', description: 'Personal opinions on politics', keywords: '' },
+  ];
+  const subjects = [
+    { id: 1, name: 'Operating Systems', teacher_name: 'OS Tutor' },
+    { id: 2, name: 'Computer Networks', teacher_name: 'Networks Tutor' },
+  ];
+  const triage = prompts.buildTriagePrompt({ subject, restrictions, subjects, allowedSubjectIds: [1, 2] });
+  for (const s of [
+    'Exam answers',
+    'Blocked keywords: exam answers',
+    'explain why it is restricted',
+    'focus on their studies',
+    'Computer Networks',
+    'this chat',
+    'this student can ask this tutor',
+    'ask their human teacher',
+    'decision: answer',
+    'decision: restricted',
+    'decision: redirect',
+  ]) {
+    assert.ok(triage.includes(s), `triage missing: ${s}`);
+  }
+  assert.equal(prompts.parseTriage('decision: answer').decision, 'answer');
+  assert.equal(prompts.parseTriage('decision: restricted\nExam answers are restricted.').message, 'Exam answers are restricted.');
+  assert.equal(prompts.parseTriage('decision: answer\ndecision: redirect\nAsk the Networks Tutor.').decision, 'redirect');
+  assert.equal(prompts.parseTriage('I am not sure').decision, 'answer');
+  assert.equal(
+    prompts.parseTriage('decision: redirect\n<message to the student> Ask your teacher.').message,
+    'Ask your teacher.'
+  );
+  assert.deepEqual(
+    prompts
+      .selectHistory([
+        { role: 'assistant', kind: 'greeting', content: 'Hi' },
+        { role: 'user', kind: 'chat', content: 'What is a pointer?' },
+        { role: 'assistant', kind: 'chat', content: 'A pointer stores an address.' },
+        { role: 'user', kind: 'chat', content: 'give me the exam answers' },
+        { role: 'assistant', kind: 'restricted', content: 'That is restricted.' },
+        { role: 'user', kind: 'restricted', content: 'another restricted question' },
+        { role: 'assistant', kind: 'restricted', content: 'Also restricted.' },
+        { role: 'user', kind: 'chat', content: 'please explain about CSS' },
+        { role: 'user', kind: 'chat', content: 'What is malloc?' },
+        { role: 'assistant', kind: 'chat', content: 'malloc reserves memory.' },
+      ])
+      .map((m) => m.content),
+    ['Hi', 'What is a pointer?', 'A pointer stores an address.', 'What is malloc?', 'malloc reserves memory.']
+  );
+
+  const answer = prompts.buildSystemPrompt({
+    subject,
     goals: ['Solve problems independently'],
-    restrictions: [{ kind: 'question', description: 'Exam answers' }, { kind: 'response', description: 'Personal opinions on politics' }],
-    otherSubjects: ['Computer Networks'],
+    restrictions,
     frustrated: true,
   });
-  for (const s of ['Operating Systems', 'Solve problems independently', 'Exam answers', 'Personal opinions on politics', 'You are an AI', 'Computer Networks', 'frustrated', '/no_think']) {
-    assert.ok(p.includes(s), `missing: ${s}`);
+  for (const s of ['expert knowledge of Operating Systems', 'A greeting gets a greeting', 'Solve problems independently', 'Personal opinions on politics', 'You are an AI', 'frustrated', '/no_think']) {
+    assert.ok(answer.includes(s), `answer missing: ${s}`);
   }
+  assert.equal(answer.includes('Exam answers'), false);
 });
